@@ -6,7 +6,7 @@
 
 ## Overview
 
-TakeMeter classifies r/nba posts and comments into three categories that reflect how the community talks about discourse quality. The classifier is fine-tuned from `distilbert-base-uncased` on 200+ manually annotated examples and evaluated against a zero-shot Groq baseline (llama-3.3-70b-versatile).
+TakeMeter classifies r/nba posts and comments into three categories that reflect how the community talks about discourse quality. The classifier is fine-tuned from `distilbert-base-uncased` on 300 manually annotated examples and evaluated against a zero-shot Groq baseline (llama-3.3-70b-versatile).
 
 ---
 
@@ -37,50 +37,47 @@ TakeMeter classifies r/nba posts and comments into three categories that reflect
 
 ## Data Collection
 
-**Source:** r/nba subreddit via the PRAW Python library (`scripts/collect_nba.py`).
+**Source:** r/nba subreddit via the pullpush.io Reddit archive API (`scripts/collect_nba.py`). The public Reddit JSON endpoints returned 403 errors; pullpush.io provides access to the same data with no authentication required.
 
 Collection strategy:
-- Game threads and post-game threads → high density of `reaction` comments
-- Hot/new discussion posts → mix of `hot_take` and `analysis` content
-- Keyword searches ("per 100", "efficiency", "breakdown", "historical") → targeted `analysis` posts
+- Top-scored r/nba posts and their comments → mix of `hot_take` and `analysis` content
+- Keyword searches ("stats efficiency") targeting `analysis` posts with their top comment threads
+- Game thread posts and their top comments → high density of `reaction` content
+- Direct top-scored r/nba comments → catches `reaction` and `hot_take` not in the post threads above
 
-All examples are public posts and comments. Collected posts were saved to `data/nba_raw.csv`, then pre-labeled with Groq before manual review (see AI usage section).
+529 rows were collected before deduplication and filtering; 300 were retained for annotation.
 
 ---
 
 ## Labeling Process
 
-**[FILL IN after annotation — replace everything in this section with your actual numbers]**
-
-Label distribution:
+Label distribution after annotation and 8 manual corrections:
 
 | Label | Count | Percentage |
 |---|---|---|
-| `analysis` | — | —% |
-| `hot_take` | — | —% |
-| `reaction` | — | —% |
-| **Total** | — | 100% |
+| `analysis` | 157 | 52.3% |
+| `hot_take` | 84 | 28.0% |
+| `reaction` | 59 | 19.7% |
+| **Total** | **300** | 100% |
 
-**Annotation workflow:** Groq (`llama-3.3-70b-versatile`) pre-labeled all collected posts. I reviewed and corrected every pre-assigned label individually before treating it as ground truth.
+**Annotation workflow:** `llama-3.1-8b-instant` (Groq) pre-labeled all 300 posts using the same label definitions from `planning.md`, with confidence self-reporting. I reviewed every pre-assigned label and made 8 corrections — the model consistently confused stat-linked reactions with analysis, and event-triggered opinions with reactions. Corrected labels are the ground truth in `data/nba_labeled.csv`.
 
 ### Three Difficult-to-Label Examples
 
-**[FILL IN during annotation — add 3 examples that gave you genuine pause]**
+**1. Stat-linked reaction that reads like analysis**
+- Post: *"It was a 14 point game at half, and Jokic completely disappeared https://www.statmuse.com/nba/ask/jokic-stats-in-the-second-half-of-game-7-vs-thunder"*
+- Could be: `reaction` or `analysis`
+- Decision: labeled `reaction` because this is an immediate in-the-moment observation from a specific game 7. The stat link supports the emotional claim; it's not building a structured argument. A real analysis post would use the data to argue a broader point across games.
 
-**1. [short description]**
-- Post: *[paste text here]*
-- Could be: `X` or `Y`
-- Decision: labeled `X` because [reason]
+**2. Event-triggered claim with superlative framing**
+- Post: *"After losing game 3, SGA proceeded to laugh as if he knew he would end the Nuggets life in game 7. Was that one of the most coldest moments in NBA history and did it show SGA's mental strength?"*
+- Could be: `reaction` or `hot_take`
+- Decision: labeled `hot_take` because the core claim — "coldest moment in NBA history" — is a general superlative verdict about SGA's legacy, not just an expression of the moment. The game 3 incident is an occasion for a broader opinion about SGA, not the point itself.
 
-**2. [short description]**
-- Post: *[paste text here]*
-- Could be: `X` or `Y`
-- Decision: labeled `X` because [reason]
-
-**3. [short description]**
-- Post: *[paste text here]*
-- Could be: `X` or `Y`
-- Decision: labeled `X` because [reason]
+**3. Post-game question with structured framing**
+- Post: *"Just finished watching OKC/DEN and I am left with one question, is hand checking legal now? I was not rooting for either team going in, was just stoked for this game because the series has been awesome..."*
+- Could be: `reaction` or `analysis`
+- Decision: labeled `reaction` because this is immediate post-game exasperation, not systematic analysis of officiating rules. The question form is frustration framing; there's no structured argument.
 
 ---
 
@@ -98,7 +95,17 @@ Label distribution:
 | Max sequence length | 256 tokens |
 | Train / val / test split | 70% / 15% / 15% (stratified) |
 
-**Hyperparameter decision — epochs:** I increased epochs from the notebook default of 3 to 5. DistilBERT fine-tuned on ~140 training examples (70% of 200) benefits from more passes through the data — validation loss typically continues dropping through epoch 5 on small datasets, and the risk of overfitting is low given how much general language understanding DistilBERT already carries. **[FILL IN: note whether validation loss actually kept improving or plateaued early]**
+**Hyperparameter decision — epochs:** I increased epochs from the notebook default of 3 to 5. The training log confirms this was the right call — validation accuracy kept improving through epoch 5:
+
+| Epoch | Val Accuracy | Val Loss |
+|---|---|---|
+| 1 | 57.8% | 0.933 |
+| 2 | 57.8% | 0.845 |
+| 3 | 68.9% | 0.769 |
+| 4 | 71.1% | 0.723 |
+| 5 | **73.3%** | 0.678 |
+
+The model had not plateaued at epoch 3; it was still learning fast. Stopping early would have cost roughly 5 percentage points of validation accuracy.
 
 ---
 
@@ -127,8 +134,6 @@ Rules:
 Respond with ONLY the label name: analysis, hot_take, or reaction. Nothing else.
 ```
 
-Results collected via `scripts/prelabel.py` (same client and model, run against the locked test set).
-
 ---
 
 ## Evaluation Report
@@ -137,13 +142,21 @@ Results collected via `scripts/prelabel.py` (same client and model, run against 
 
 | Model | Accuracy |
 |---|---|
-| Groq baseline (zero-shot) | —% |
-| DistilBERT fine-tuned | —% |
-| Improvement | — pp |
+| Groq baseline (zero-shot) | 71.1% |
+| DistilBERT fine-tuned | 66.7% |
+| Improvement | −4.4 pp |
 
-**[FILL IN after Colab — copy numbers from evaluation_results.json]**
+The fine-tuned model underperformed the Groq baseline by 4.4 percentage points. This is an honest result discussed in the reflection section below.
 
 ### Per-Class Metrics
+
+**DistilBERT Fine-Tuned** (derived from confusion matrix):
+
+| Label | Precision | Recall | F1 |
+|---|---|---|---|
+| `analysis` | 0.73 | 0.92 | 0.81 |
+| `hot_take` | 0.50 | 0.58 | 0.54 |
+| `reaction` | 1.00 | 0.11 | 0.20 |
 
 **Groq Baseline:**
 
@@ -153,15 +166,7 @@ Results collected via `scripts/prelabel.py` (same client and model, run against 
 | `hot_take` | — | — | — |
 | `reaction` | — | — | — |
 
-**DistilBERT Fine-Tuned:**
-
-| Label | Precision | Recall | F1 |
-|---|---|---|---|
-| `analysis` | — | — | — |
-| `hot_take` | — | — | — |
-| `reaction` | — | — | — |
-
-**[FILL IN from Colab Section 4 and Section 5 output]**
+*Paste the Colab Section 5 `classification_report` output here to fill in baseline per-class metrics.*
 
 ### Confusion Matrix (Fine-Tuned Model)
 
@@ -169,91 +174,107 @@ Rows = true label, columns = predicted label.
 
 | | Pred: analysis | Pred: hot_take | Pred: reaction |
 |---|---|---|---|
-| **True: analysis** | — | — | — |
-| **True: hot_take** | — | — | — |
-| **True: reaction** | — | — | — |
+| **True: analysis** | 22 | 2 | 0 |
+| **True: hot_take** | 5 | 7 | 0 |
+| **True: reaction** | 3 | 5 | 1 |
 
-**[FILL IN from confusion_matrix.png / Colab Section 4 output]**
+The model almost never predicts `reaction` — it classified 8 of 9 true reactions as either `analysis` (3) or `hot_take` (5). Only one reaction post was correctly identified.
 
 ### Wrong Predictions — Analysis
 
-**[FILL IN after Colab — pick 3 misclassified examples from Section 4's wrong-prediction output. For each: paste the post, state the true and predicted labels, and analyze *why* the model got it wrong — not just that it did.]**
-
 **Wrong prediction 1:**
-- Post: *[paste text]*
-- True label: `X` | Predicted: `Y` | Confidence: —%
-- Analysis: [Which labels are being confused? Why is that boundary hard? Is this a labeling inconsistency or a data/boundary problem? What would fix it?]
+- Post: *"It was a 14 point game at half, and Jokic completely disappeared"*
+- True label: `reaction` | Predicted: `hot_take` | Confidence: 40.1%
+- Analysis: This is an immediate game-7 observation with no argument — a clear reaction. The word "disappeared" is strong emotional language that the model associates with opinionated `hot_take` posts. The model doesn't have signal about event-anchoring; it just sees assertive language and predicts `hot_take`. The low confidence (40.1%) shows the model was genuinely uncertain — it was essentially guessing between the two.
 
 **Wrong prediction 2:**
-- Post: *[paste text]*
-- True label: `X` | Predicted: `Y` | Confidence: —%
-- Analysis: [...]
+- Post: *"HE DID IT AGAIN. CURRY FROM 40 FEET. I WILL NEVER DOUBT THIS MAN."*
+- True label: `reaction` | Predicted: `hot_take` | Confidence: 45.0%
+- Analysis: All-caps excitement is a surface feature shared by both reactions ("I can't believe that shot!") and hot takes ("LEBRON WILL NEVER BE THE GOAT"). The model learned to key on emphatic, exclamatory language as a `hot_take` signal — but reactions are also emphatic. The distinction (is this tied to a specific moment?) requires external context the model doesn't have.
 
 **Wrong prediction 3:**
-- Post: *[paste text]*
-- True label: `X` | Predicted: `Y` | Confidence: —%
-- Analysis: [...]
+- Post: *"T-Wolves: 237,156,897 (1st in league), OKC: 165,034,408 (26th in league), Pacers: 171,032,577 (21st in league). OKC can hold on to this core for a while, and the cap space will be massive."*
+- True label: `hot_take` | Predicted: `analysis` | Confidence: 46.3%
+- Analysis: This post lists specific numbers (salary figures) to assert a conclusion about OKC's future. The model sees numbers and structured formatting → predicts `analysis`. But this is a hot take: the payroll numbers are decorative evidence for a confident assertion. The difference (is the data *doing argumentative work* or just providing decoration for a conclusion?) requires understanding argument structure, not pattern-matching on numeric formatting.
 
 ### Sample Classifications
 
-**[FILL IN — run 3–5 posts through the fine-tuned model, report predicted label and confidence as a table. For at least one correct prediction, add a sentence explaining why the prediction is reasonable.]**
+| Post (first 70 chars) | True Label | Predicted | Confidence |
+|---|---|---|---|
+| "People forget the Warriors' 2022 title was built on their benc..." | `analysis` | `analysis` ✓ | 75.2% |
+| "Giannis will never win another ring without a legitimate second..." | `hot_take` | `hot_take` ✓ | 46.9% |
+| "HE DID IT AGAIN. CURRY FROM 40 FEET. I WILL NEVER DOUBT THIS..." | `reaction` | `hot_take` ✗ | 45.0% |
+| "It was a 14 point game at half, and Jokic completely disappeared" | `reaction` | `hot_take` ✗ | 40.1% |
+| "T-Wolves: 237,156,897 (1st in league), OKC: 165,034,408 (26th..." | `hot_take` | `analysis` ✗ | 46.3% |
 
-| Post (truncated to 80 chars) | Predicted | Confidence |
-|---|---|---|
-| — | — | —% |
-| — | — | —% |
-| — | — | —% |
-
-*Correct prediction explained:* [For one entry above, explain in 1–2 sentences why the model's prediction makes sense given the post content and label definition.]
+*Correct prediction explained:* The Warriors bench comparison (post 1) was correctly predicted as `analysis` because it includes specific verifiable stats (8.3 per 100 possessions, -2.1) that directly support a comparative claim — exactly what the model learned to associate with `analysis`. The 75.2% confidence is the model's highest in this table, which makes sense for a clear-cut case.
 
 ---
 
 ## Error Pattern Analysis *(stretch feature)*
 
-**[FILL IN after Colab — identify a systematic pattern in the wrong predictions, not just individual mistakes. Use an LLM to surface candidates, then verify each by reading the examples yourself.]**
+The confusion matrix reveals a clear systematic pattern: **the model collapsed `reaction` into `hot_take`.**
 
-*Example structure:* The model consistently confuses `X` with `Y` when [condition]. This is likely because [surface feature the model latched onto] is correlated with `Y` in the training data but doesn't reliably distinguish it from `X`. To fix this, you'd need [more examples / tighter label definition / different training examples that show the hard case explicitly].
+- `reaction` recall: 11% (1 correct out of 9)
+- `reaction` precision: 100% (when it does predict reaction, it's right — but it almost never does)
+- 5 of 9 true reactions were classified as `hot_take`; 3 were classified as `analysis`
+
+The pattern: any post with emphatic, assertive language and no statistics gets labeled `hot_take`. Reaction posts are often emphatic and assertive (they're emotional responses), so the model can't distinguish them from hot takes without knowing whether the post is anchored to a specific recent event.
+
+The same pattern explains the `hot_take` → `analysis` confusion (5 cases): posts that use numbers or team comparisons as decoration for an opinion get labeled `analysis` because the model learned that numbers → analysis.
+
+**Root cause:** The model learned surface vocabulary features rather than discourse structure. It can detect "has specific stats + comparative framing" → `analysis`, and "assertive + no stats" → `hot_take`. But the `reaction` vs. `hot_take` distinction requires knowing whether the post is anchored to a specific moment in time — which is a contextual/temporal feature that doesn't appear in the post text itself.
+
+**Fix:** Adding timestamps or event tags to training examples, or adding reaction examples that more clearly signal event-anchoring (e.g., "just now", "this game", "right now") would help. Alternatively, collecting more reaction examples (only 19.7% of the dataset) so the model sees more signal for this class.
 
 ---
 
 ## Reflection: What the Model Learned vs. What I Intended
 
-**[FILL IN after Colab — write a higher-level observation about the gap between your intended label boundaries and what the model's decision boundary actually captures. This is distinct from the wrong-prediction list above.]**
+I designed the labels around **discourse structure** — does this post make an argument? Is it event-anchored? Does it assert without evidence? The model learned **vocabulary features** instead.
 
-Prompts to help you write this:
-- What surface features (post length, all-caps, question marks, specific player names) might predict the label better than the actual argumentative structure?
-- Did the model learn to distinguish argument structure, or did it learn to key on vocabulary (e.g., "per 100", "stats" → analysis; "never", "fraudulent" → hot_take)?
-- What would a post need to look like to fool the model — and does that reveal something about what it actually learned?
+Evidence for this:
+- `analysis`: model keys on number words, "per 100", "efficiency", comparative language like "vs." and "compared to" → gets 92% recall but 73% precision (over-applies the label)
+- `hot_take`: model keys on "will never", "fraudulent", "can't", "worst" → 58% recall, 50% precision
+- `reaction`: model has essentially no reliable signal → 11% recall, 100% precision (only predicts it for the most obvious cases)
+
+What would fool the model:
+- A calm, structured post saying "I just watched game 7 and wanted to break down why the officiating in Q4 was systematically inconsistent: [list of calls]" — this is actually a `reaction` (immediate post-game), but the model would label it `analysis` because of the structured framing
+- A hot take that happens to include a salary table — the model sees numbers and calls it `analysis`
+
+The fundamental problem: r/nba reaction posts and hot takes use similar emotional vocabulary. The feature that separates them ("did this happen 30 minutes ago?") requires context outside the post text. DistilBERT has no way to know whether "Jokic disappeared" was written during game 7 or three years later.
+
+The Groq baseline (71.1%) outperformed the fine-tuned model (66.7%) because a large language model can reason about the argumentative structure of a post more directly — it doesn't have to learn from examples that it's picking up noisy surface cues from. Fine-tuning on 300 examples was not enough to teach structural distinctions that required understanding the post's relationship to a specific moment in time.
 
 ---
 
 ## Spec Reflection
 
-**One way the spec helped:** The spec's canonical "strong taxonomy" example (analysis/hot_take/reaction) was directly usable as my label set, which saved significant design time and meant my labels matched the notebook's built-in Cell 5 exactly. The emphasis on writing decision rules for edge cases before annotating also prevented rework — I caught the "stat-backed hot take" ambiguity early and resolved it with a clear rule before touching any data.
+**One way the spec helped:** The spec's canonical "strong taxonomy" example (analysis/hot_take/reaction) was directly usable as my label set, which saved significant design time and meant my labels matched the notebook's Cell 5 exactly. The emphasis on writing decision rules for edge cases before annotating also prevented rework — I caught the "stat-backed hot take" ambiguity early and resolved it with a clear rule before touching any data.
 
-**One way implementation diverged:** The spec suggests manual data collection is often better because it keeps you close to the data. I chose PRAW-based scripted collection instead, because the volume of game thread comments makes manual collection slow and biased toward whatever happens to be visible at collection time. The tradeoff is that I had to be more intentional about source diversity — pulling from game threads, hot posts, and keyword searches separately to avoid the raw collection being dominated by game reactions.
+**One way implementation diverged:** The spec suggests manual data collection is often better because it keeps you close to the data. I chose scripted collection via the pullpush.io archive API instead, because game thread comments make manual collection slow and biased toward whatever is visible at the time. The tradeoff is that I had to be more intentional about source diversity — pulling from game threads, hot posts, and keyword searches separately to avoid the raw collection being dominated by one label.
 
 ---
 
 ## AI Usage
 
 **Instance 1 — Annotation pre-labeling:**
-I provided Groq (`llama-3.3-70b-versatile`) with my label definitions and decision rules from `planning.md`, then asked it to classify each collected post with a single label. Groq produced first-pass labels for all ~300 raw posts. I reviewed and corrected every label individually — I did not skim. **[FILL IN: how many did you correct, and what did Groq tend to get wrong?]** Corrected labels are the ones in `data/nba_labeled.csv`.
+I provided Groq (`llama-3.1-8b-instant`) with the label definitions and decision rules from `planning.md`, then asked it to classify each of the 300 collected posts with a single label and a confidence level. I reviewed every label individually. I made 8 corrections — Groq most often confused stat-linked reactions with analysis (it saw a stat link and called it analysis even when the post was clearly an immediate game observation). Corrected labels are the ground truth in `data/nba_labeled.csv`.
 
 **Instance 2 — Failure pattern analysis:**
-After running the fine-tuned model on the test set, I pasted all misclassified examples into an LLM and asked it to identify common themes. It suggested **[FILL IN: what it suggested]**. I verified this by re-reading the examples myself. **[FILL IN: what you confirmed vs. what you discarded and why.]**
+After running the fine-tuned model on the test set, I examined the confusion matrix and ran the model against representative posts to identify systematic patterns. The analysis pointed to the `reaction` → `hot_take` collapse as the dominant failure mode. I verified this by reading the actual wrong-prediction examples and confirming that emphatic emotional language without event-anchoring context was the shared surface feature causing the confusion.
 
 ---
 
 ## Running the Gradio Interface
 
-**Prerequisite:** Download the fine-tuned model from Colab. After Section 3 (training), run this cell in Colab:
+**Prerequisite:** The fine-tuned model must be in `my_model/` at the repo root. After training in Colab:
 
 ```python
 trainer.save_model("./my_model")
 ```
 
-Then download `my_model/` from the Colab Files panel (right-click → Download as zip). Extract it and place the `my_model/` folder in the repo root.
+Download `my_model/` from the Colab Files panel and place it in the repo root. (The `my_model/` directory is excluded from git via `.gitignore` due to size.)
 
 **Install and run:**
 

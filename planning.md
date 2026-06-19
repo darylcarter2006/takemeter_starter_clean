@@ -80,22 +80,20 @@ I defined three labels that together cover the overwhelming majority of r/nba po
 
 ### Hard Annotation Examples from Actual Data
 
-*[FILL IN during annotation — add 3 examples that genuinely gave you pause, with which labels they could belong to and what you decided. These must come from real posts in your dataset.]*
+**Example 1 — stat-linked reaction that reads like analysis**
+- Post: *"It was a 14 point game at half, and Jokic completely disappeared https://www.statmuse.com/nba/ask/jokic-stats-in-the-second-half-of-game-7-vs-thunder"*
+- Could be: `reaction` or `analysis`
+- Decision: labeled `reaction` because the post is an immediate in-the-moment observation from a specific game 7; the stat link is supporting the emotional claim, not building a structured argument. An analysis post would use the data to make a broader case across games, not just link proof of one disappearing act.
 
-**Example 1:**
-- Post: [paste text]
-- Could be: `X` or `Y`
-- Decision: labeled `X` because [reason]
+**Example 2 — event-triggered claim that reads like a hot take**
+- Post: *"After losing game 3, SGA proceeded to laugh as if he knew he would end the Nuggets life in game 7. Was that one of the most coldest moments in NBA history and did it show SGA's mental strength?"*
+- Could be: `reaction` or `hot_take`
+- Decision: labeled `hot_take` because the core claim — "coldest moment in NBA history" — is a general superlative verdict about SGA's legacy, not just an expression of the moment. The game 3 incident is an occasion for a broader opinion about SGA's mental strength, not the point itself. Per the decision rule: a verdict about a player triggered by a recent event → `hot_take`.
 
-**Example 2:**
-- Post: [paste text]
-- Could be: `X` or `Y`
-- Decision: labeled `X` because [reason]
-
-**Example 3:**
-- Post: [paste text]
-- Could be: `X` or `Y`
-- Decision: labeled `X` because [reason]
+**Example 3 — post-game question with structured framing**
+- Post: *"Just finished watching OKC/DEN and I am left with one question, is hand checking legal now? I was not rooting for either team going in, was just stoked for this game because the series has been awesome..."*
+- Could be: `reaction` or `analysis`
+- Decision: labeled `reaction` because it is an immediate post-game emotional response to perceived officiating; the question form ("is hand checking legal now?") is frustration framing, not analytical inquiry. There's no systematic argument about officiating rules — the post is an expression of in-the-moment exasperation.
 
 ---
 
