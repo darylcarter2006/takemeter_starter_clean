@@ -8,7 +8,7 @@ Output: data/nba_labeled.csv — label column already filled from Groq.
   Only fix rows where needs_review == True before uploading to Colab.
 """
 
-import math
+import json
 import os
 import time
 import pandas as pd
@@ -31,9 +31,11 @@ Rules:
 - A post anchored to a specific recent event with no argument → reaction
 - A post building a case with multiple specific, verifiable data points → analysis
 
-Respond with ONLY the label name: analysis, hot_take, or reaction. Nothing else."""
+Respond with JSON only: {"label": "<label>", "confidence": "<high|medium|low>"}
+Use confidence=low when the post is ambiguous between two labels."""
 
 VALID_LABELS = {"analysis", "hot_take", "reaction"}
+CONFIDENCE_MAP = {"high": 0.95, "medium": 0.65, "low": 0.30}
 CONFIDENCE_THRESHOLD = 0.80
 SHORT_TEXT_CHARS = 20
 
@@ -46,17 +48,15 @@ def classify(text):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": str(text)},
             ],
-            max_tokens=10,
+            max_tokens=30,
             temperature=0,
-            logprobs=True,
+            response_format={"type": "json_object"},
         )
-        label = response.choices[0].message.content.strip().lower()
-        try:
-            logprob = response.choices[0].logprobs.content[0].logprob
-            confidence = round(math.exp(logprob), 3)
-        except (AttributeError, IndexError, TypeError):
-            confidence = None
-        return label, confidence
+        data = json.loads(response.choices[0].message.content)
+        label = data.get("label", "").strip().lower()
+        conf_str = data.get("confidence", "").strip().lower()
+        confidence = CONFIDENCE_MAP.get(conf_str)
+        return (label if label in VALID_LABELS else "UNPARSEABLE"), confidence
     except Exception as e:
         print(f"  API error: {e}")
         return "ERROR", None
