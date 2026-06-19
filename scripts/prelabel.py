@@ -1,21 +1,14 @@
 """
-Pre-label data/nba_raw.csv using Groq llama-3.3-70b-versatile.
+Pre-label data/nba_raw.csv using Groq and export a review-ready nba_labeled.csv.
 
 Setup:
-  Add GROQ_API_KEY to your .env file (same key as your other projects).
-  pip install groq python-dotenv pandas
+  GROQ_API_KEY in .env, pip install groq python-dotenv pandas
 
-Input:  data/nba_raw.csv (columns: text, source) from collect_nba.py
-Output: data/nba_prelabeled.csv with an added `label_prelabeled` column.
-
-After this script:
-  1. Open data/nba_prelabeled.csv in a spreadsheet
-  2. Review EVERY row — correct any label you disagree with
-  3. Add a `label` column containing your corrected labels
-  4. Save the final version as data/nba_labeled.csv (must have: text, label)
-  5. Upload data/nba_labeled.csv to the Colab notebook
+Output: data/nba_labeled.csv — label column already filled from Groq.
+  Only fix rows where needs_review == True before uploading to Colab.
 """
 
+import math
 import os
 import time
 import pandas as pd
@@ -41,51 +34,82 @@ Rules:
 Respond with ONLY the label name: analysis, hot_take, or reaction. Nothing else."""
 
 VALID_LABELS = {"analysis", "hot_take", "reaction"}
+CONFIDENCE_THRESHOLD = 0.80
+SHORT_TEXT_CHARS = 20
 
 
-def classify(text: str) -> str:
+def classify(text):
     try:
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": text},
+                {"role": "user", "content": str(text)},
             ],
             max_tokens=10,
             temperature=0,
+            logprobs=True,
         )
         label = response.choices[0].message.content.strip().lower()
-        return label if label in VALID_LABELS else "UNPARSEABLE"
+        try:
+            logprob = response.choices[0].logprobs.content[0].logprob
+            confidence = round(math.exp(logprob), 3)
+        except (AttributeError, IndexError, TypeError):
+            confidence = None
+        return label, confidence
     except Exception as e:
         print(f"  API error: {e}")
-        return "ERROR"
+        return "ERROR", None
 
 
 df = pd.read_csv("data/nba_raw.csv")
-print(f"Loaded {len(df)} rows from data/nba_raw.csv")
+print(f"Loaded {len(df)} rows\n")
 
-labels = []
+labels, confidences = [], []
 for i, row in df.iterrows():
-    label = classify(str(row["text"]))
-    labels.append(label)
+    label, confidence = classify(row["text"])
+    labels.append(label if label in VALID_LABELS else "UNPARSEABLE")
+    confidences.append(confidence)
     if (i + 1) % 25 == 0:
         print(f"  {i + 1}/{len(df)} classified...")
     time.sleep(0.15)
 
-df["label_prelabeled"] = labels
-df.to_csv("data/nba_prelabeled.csv", index=False)
+df["label"] = labels
+df["confidence"] = confidences
+df["needs_review"] = (
+    ~df["label"].isin(VALID_LABELS)
+    | df["confidence"].isna()
+    | (df["confidence"] < CONFIDENCE_THRESHOLD)
+    | (df["text"].str.len() < SHORT_TEXT_CHARS)
+)
 
-print(f"\nDistribution of pre-labels:")
-print(df["label_prelabeled"].value_counts().to_string())
+# --- Distribution ---
+print("\nLabel distribution:")
+total = len(df)
+for label, count in df["label"].value_counts().items():
+    pct = count / total * 100
+    warning = "  ⚠ OVER 70% — collect more of the other labels" if pct > 70 else ""
+    print(f"  {label:12s}  {count:4d}  ({pct:.1f}%){warning}")
 
-unparseable = (df["label_prelabeled"] == "UNPARSEABLE").sum()
-if unparseable > 0:
-    print(f"\nWarning: {unparseable} rows returned UNPARSEABLE — check those manually.")
+# --- Flagged rows ---
+flagged = df[df["needs_review"]]
+print(f"\n{len(flagged)} of {total} rows flagged for review:")
+if not flagged.empty:
+    print(f"\n  {'Row':>4}  {'Label':12}  {'Conf':6}  Text preview")
+    print(f"  {'-'*4}  {'-'*12}  {'-'*6}  {'-'*50}")
+    for idx, row in flagged.iterrows():
+        conf = f"{row['confidence']:.0%}" if row["confidence"] is not None else "N/A "
+        preview = str(row["text"])[:55].replace("\n", " ")
+        print(f"  {idx:>4}  {row['label']:12}  {conf:6}  {preview}")
 
-print(f"\nSaved to data/nba_prelabeled.csv")
-print("\nNext steps:")
-print("  1. Open data/nba_prelabeled.csv in a spreadsheet")
-print("  2. Review every row — correct any label you disagree with")
-print("  3. Copy corrected labels into the 'label' column")
-print("  4. Save as data/nba_labeled.csv")
-print("  5. Check label counts — no single label should exceed 70% of total")
+# --- Save ---
+os.makedirs("data", exist_ok=True)
+df[["text", "label", "source", "confidence", "needs_review"]].to_csv(
+    "data/nba_labeled.csv", index=False
+)
+
+print(f"\nSaved data/nba_labeled.csv")
+if not flagged.empty:
+    print(f"Open it, fix the {len(flagged)} flagged rows, then upload to Colab.")
+else:
+    print("No rows flagged — upload data/nba_labeled.csv to Colab directly.")

@@ -6,8 +6,7 @@ __pycache__/
 # Download instructions are in README.md
 my_model/
 
-# Intermediate collection files — not needed in repo
+# Raw uncleaned collection — not needed in repo
 data/nba_raw.csv
-data/nba_prelabeled.csv
 
 *.ipynb_checkpoints
