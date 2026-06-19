@@ -1,10 +1,14 @@
 .env
 *.pyc
 __pycache__/
+.DS_Store
 
 # Fine-tuned model — too large for GitHub
 # Download instructions are in README.md
 my_model/
+
+# Raw Colab output folder — model files are too large (267MB / 535MB)
+AI Model Training 210 week 3/
 
 # Raw uncleaned collection — not needed in repo
 data/nba_raw.csv
