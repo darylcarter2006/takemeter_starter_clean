@@ -162,11 +162,9 @@ The fine-tuned model underperformed the Groq baseline by 4.4 percentage points. 
 
 | Label | Precision | Recall | F1 |
 |---|---|---|---|
-| `analysis` | — | — | — |
-| `hot_take` | — | — | — |
-| `reaction` | — | — | — |
-
-*Paste the Colab Section 5 `classification_report` output here to fill in baseline per-class metrics.*
+| `analysis` | 0.86 | 0.79 | 0.83 |
+| `hot_take` | 0.60 | 0.50 | 0.55 |
+| `reaction` | 0.54 | 0.78 | 0.64 |
 
 ### Confusion Matrix (Fine-Tuned Model)
 
