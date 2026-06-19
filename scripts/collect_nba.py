@@ -20,17 +20,26 @@ import time
 import requests
 import pandas as pd
 
-BASE = "https://old.reddit.com"
-HEADERS = {
+BASE = "https://www.reddit.com"
+SLEEP = 2
+
+session = requests.Session()
+session.headers.update({
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
     ),
-    "Accept": "application/json, text/javascript, */*",
     "Accept-Language": "en-US,en;q=0.9",
-}
-SLEEP = 2
+})
+
+# Warm up: load the HTML page so Reddit issues its anonymous session cookie.
+# Without this cookie the JSON endpoints return 403.
+print("Establishing session with Reddit ...")
+session.headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+session.get(f"{BASE}/r/nba/", timeout=15)
+session.headers["Accept"] = "application/json, text/javascript, */*"
+time.sleep(SLEEP)
 
 rows = []
 seen = set()
@@ -38,7 +47,7 @@ seen = set()
 
 def get_json(url, params=None):
     time.sleep(SLEEP)
-    resp = requests.get(url, headers=HEADERS, params=params, timeout=15)
+    resp = session.get(url, params=params, timeout=15)
     resp.raise_for_status()
     return resp.json()
 
