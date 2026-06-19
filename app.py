@@ -13,24 +13,16 @@ Run:
   Then open http://localhost:7860
 """
 
+import torch
 import gradio as gr
-from transformers import pipeline
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 ID_TO_LABEL = {0: "analysis", 1: "hot_take", 2: "reaction"}
 
-
-def resolve_label(raw: str) -> str:
-    if raw in ID_TO_LABEL.values():
-        return raw
-    for prefix in ("LABEL_", "label_"):
-        if raw.upper().startswith(prefix.upper()):
-            idx = int(raw[len(prefix):])
-            return ID_TO_LABEL.get(idx, raw)
-    return raw
-
-
 try:
-    classifier = pipeline("text-classification", model="./my_model")
+    _tokenizer = AutoTokenizer.from_pretrained("./my_model")
+    _model = AutoModelForSequenceClassification.from_pretrained("./my_model")
+    _model.eval()
 except OSError:
     raise SystemExit(
         "\nModel not found at ./my_model\n"
@@ -42,9 +34,14 @@ except OSError:
 def classify_post(text: str):
     if not text.strip():
         return "—", "—"
-    result = classifier(text)[0]
-    label = resolve_label(result["label"])
-    confidence = f"{result['score']:.1%}"
+    inputs = _tokenizer(text, return_tensors="pt", truncation=True, max_length=256)
+    inputs = {k: v for k, v in inputs.items() if k != "token_type_ids"}
+    with torch.no_grad():
+        logits = _model(**inputs).logits
+    probs = torch.softmax(logits, dim=-1)[0]
+    pred_id = int(probs.argmax())
+    label = ID_TO_LABEL[pred_id]
+    confidence = f"{probs[pred_id].item():.1%}"
     return label, confidence
 
 
