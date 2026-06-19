@@ -10,6 +10,7 @@ Output: data/nba_labeled.csv — label column already filled from Groq.
 
 import json
 import os
+import re
 import time
 import pandas as pd
 from groq import Groq
@@ -18,6 +19,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+MODEL = "llama-3.1-8b-instant"  # 500k TPD free tier vs 100k for 70b
+MAX_ROWS = 300  # project needs 200+; 300 gives buffer for balance fixes
 
 SYSTEM_PROMPT = """You are classifying r/nba posts for a discourse quality study.
 
@@ -41,29 +45,41 @@ SHORT_TEXT_CHARS = 20
 
 
 def classify(text):
-    try:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": str(text)},
-            ],
-            max_tokens=30,
-            temperature=0,
-            response_format={"type": "json_object"},
-        )
-        data = json.loads(response.choices[0].message.content)
-        label = data.get("label", "").strip().lower()
-        conf_str = data.get("confidence", "").strip().lower()
-        confidence = CONFIDENCE_MAP.get(conf_str)
-        return (label if label in VALID_LABELS else "UNPARSEABLE"), confidence
-    except Exception as e:
-        print(f"  API error: {e}")
-        return "ERROR", None
+    while True:
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": str(text)},
+                ],
+                max_tokens=30,
+                temperature=0,
+                response_format={"type": "json_object"},
+            )
+            data = json.loads(response.choices[0].message.content)
+            label = data.get("label", "").strip().lower()
+            conf_str = data.get("confidence", "").strip().lower()
+            confidence = CONFIDENCE_MAP.get(conf_str)
+            return (label if label in VALID_LABELS else "UNPARSEABLE"), confidence
+        except Exception as e:
+            msg = str(e)
+            if "429" in msg:
+                # Parse "try again in Xm Y.Zs" from the error and wait it out
+                match = re.search(r"try again in (\d+)m([\d.]+)s", msg)
+                if match:
+                    wait = int(match.group(1)) * 60 + float(match.group(2)) + 5
+                else:
+                    wait = 65
+                print(f"  Rate limited — waiting {wait:.0f}s ...")
+                time.sleep(wait)
+            else:
+                print(f"  API error: {e}")
+                return "ERROR", None
 
 
-df = pd.read_csv("data/nba_raw.csv")
-print(f"Loaded {len(df)} rows\n")
+df = pd.read_csv("data/nba_raw.csv").head(MAX_ROWS)
+print(f"Loaded {len(df)} rows (capped at {MAX_ROWS})\n")
 
 labels, confidences = [], []
 for i, row in df.iterrows():
